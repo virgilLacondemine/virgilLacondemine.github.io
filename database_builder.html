@@ -1,0 +1,216 @@
+<html>
+	<head>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+		<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+	</head>
+	<body class="content p-3" x-data="database_generator">
+        <div class="box">
+            <button
+                class="button"
+                type="button"
+                @click="buildDb"
+            >BuildDb</button>
+            <button
+                class="button"
+                type="button"
+                @click="$refs.fileInput.click()"
+            >Import</button>
+            <input
+                type="file"
+                x-ref="fileInput"
+                @change="importDb"
+                style="display:none"
+                accept=".json"
+            >
+            <button
+                    class="button"
+                    type="button"
+                    @click="exportDb"
+                    x-show="dbBuilt"
+            >Export
+            </button>
+        </div>
+        <div class="box" x-show="dbBuilt">
+            <div class="select">
+                <select x-model="selectedJob" @change="updatedActiveSkills()">
+                    <option value="" disabled selected>Choose a job</option>
+                    <template x-for="job in db.jobs">
+                        <option :value="job.abrv" x-text="`${job.name} (${job.abrv})`"></option>
+                    </template>
+                </select>
+            </div>
+        </div>
+        <div class="box" x-show="dbBuilt">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <td>Id</td>
+                        <td>Icon</td>
+                        <td>Name</td>
+                        <td>Desc</td>
+                        <td>Actions</td>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="skill, index in activeSkills">
+                        <tr>
+                            <td x-text="skill.id"></td>
+                            <td><img :src="skill.icon"></td>
+                            <td x-text="skill.name"></td>
+                            <td x-html="skill.desc"></td>
+                            <td>
+                                <button
+                                    class="delete"
+                                    @click="removeSkill(index)"
+                                ></button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+		<script type="application/javascript">
+			document.addEventListener('alpine:init', () => {
+			    Alpine.data('database_generator', () => ({
+                    xivapiUrl: "https://v2.xivapi.com/api/",
+                    db: { jobs: {}, skills: {} },
+                    dbBuilt: false,
+                    activeSkills: [],
+                    selectedJob: "",
+
+                    async buildDb() {
+                        this.jobs = await this.fetchJobs();
+
+                        this.db = { jobs: {}, skills: {} };
+
+                        await Promise.all(this.jobs.map(async (job) => {
+                            var skills = await this.fetchSkills(job);
+
+                            this.db['jobs'][job.abrv] = job;
+                            this.db['skills'][job.abrv] = skills;
+                        }));
+
+                        this.dbBuilt = true;
+                    },
+
+                    async updatedActiveSkills() {
+                        this.activeSkills = this.db.skills[this.selectedJob];
+                    },
+
+                    removeSkill(index) {
+                        var deleted = this.activeSkills.splice(index, 1);
+                    },
+
+                    importDb(event) {
+                        var file = event.target.files[0];
+                        if (!file) {
+                            return;
+                        }
+
+                        var reader = new FileReader();
+                        reader.onload = (e) => {
+                            try {
+                                this.db = JSON.parse(e.target.result);
+                                this.dbBuilt = true;
+                                this.selectedJob = "";
+                                this.activeSkills = [];
+                            } catch (err) {
+                                console.error("Failed to parse JSON", err);
+                                alert("Error importing JSON file.");
+                            }
+                        };
+
+                        reader.readAsText(file);
+                    },
+
+                    exportDb() {
+                        var json = JSON.stringify(this.db);
+
+                        var blob = new Blob([json], {type: "application/json"});
+                        var url = URL.createObjectURL(blob);
+
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'db.json';
+
+                        document.body.appendChild(a);
+
+                        a.click();
+
+                        document.body.removeChild(a);
+
+                        URL.revokeObjectURL(url);
+                    },
+
+                    async fetchJobs() {
+                        const jobsQueryUrl = new URL("search", this.xivapiUrl);
+                        const searchParams = jobsQueryUrl.searchParams;
+                        searchParams.append('query', '-JobIndex=0');
+                        searchParams.append('sheets', 'ClassJob');
+                        searchParams.append('fields', [
+                            'Abbreviation',
+                            'Name',
+                            'NameEnglish',
+                            'ClassJobParent.id',
+                            'ClassJobParent.Name',
+                            'ClassJobParent.NameEnglish',
+                            'ClassJobParent.Abbreviation'
+                        ].join(','));
+
+                        var response = await fetch(jobsQueryUrl);
+                        var data = await response.json();
+
+                        return data.results.map(row => {
+                            var classjob = row.fields;
+                            return {
+                                id: row.row_id,
+                                parent: {
+                                    id: classjob.ClassJobParent.row_id,
+                                    abrv: classjob.ClassJobParent.fields.Abbreviation,
+                                },
+                                name: classjob.NameEnglish,
+                                abrv: classjob.Abbreviation,
+                            };
+                        });
+                    },
+
+                    async fetchSkills(job) {
+                        const actionsQueryUrl = new URL("search", this.xivapiUrl);
+                        var searchParams = actionsQueryUrl.searchParams;
+                        searchParams.append('query', `+(ClassJobCategory.Name~"${job.abrv}" ClassJobCategory.Name~"${job.parent.abrv}") +IsPvP=false`);
+                        searchParams.append('sheets', 'Action');
+                        searchParams.append('fields', [
+                            'Name',
+                            'Icon',
+                            'ActionCombo.id',
+                            'ActionCombo.Name',
+                            'PreserveCombo',
+                            'Cast100ms',
+                            'Recast100ms',
+                        ].join(','));
+                        searchParams.append('transient', [
+                            'Description',
+                        ].join(','));
+
+                        var response = await fetch(actionsQueryUrl);
+                        var data = await response.json();
+
+                        return data.results.map(row => {
+                            var action = row.fields;
+                            var icon = action.Icon;
+                            var description = row.transient.Description;
+
+                            return {
+                                id: row.row_id,
+                                name: action.Name,
+                                icon: `https://v2.xivapi.com/api/asset?path=${icon.path_hr1}&format=webp`,
+                                desc: description,
+                            };
+                        });
+                    },
+			    }));
+			});
+		</script>
+	</body>
+</html>
