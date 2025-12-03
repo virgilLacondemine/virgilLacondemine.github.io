@@ -1,0 +1,783 @@
+<html>
+<head>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        .dropdown-content {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .skill-icon {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        .dropdown-trigger .button {
+            justify-content: space-between;
+        }
+
+        .dropdown-item.is-active {
+            background-color: #3273dc;
+            color: white;
+        }
+
+        .rotation-container {
+            gap: 0.5rem;
+            max-height: 600px;
+            min-height: 600px;
+            overflow-y: auto;
+        }
+
+        .rotation-step {
+            border-radius: 8px;
+            border: 1px solid #dbdbdb;
+            gap: 8px;
+            position: relative;
+            cursor: grab;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            user-select: none;
+            padding-left: 3rem !important;
+        }
+
+        .time-display {
+            position: absolute;
+            left: 0.5rem;
+            font-size: 0.8rem;
+            color: #666;
+            min-width: 2rem;
+        }
+
+        .rotation-step.is-selected {
+            background-color: #ebf3ff;
+            border-color: #3273dc;
+        }
+
+        .dropdown-item.combo-action {
+            border-style: dotted;
+            border-color: #1e741e;
+            border-width: 1px 0;
+        }
+
+        .rotation-step.is-dragging {
+            opacity: 0.5;
+            border-style: dashed;
+            background-color: #f5f5f5;
+            transform: scale(0.95);
+        }
+
+        .rotation-step.is-drag-over {
+            border-color: #3273dc;
+            box-shadow: 0 0 8px rgba(50, 115, 220, 0.4);
+            transform: scale(1.02);
+            z-index: 1;
+        }
+
+        .step-delete-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            z-index: 5;
+        }
+
+        .step-add-between-btn {
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            z-index: 5;
+            display: none;
+        }
+
+        .rotation-step:hover .step-add-between-btn, .step-add-between-btn:hover {
+            display: inline-flex;
+        }
+
+        .gcd-trigger {
+            width: 48px;
+            height: 48px;
+            border-radius: 4px;
+            border: 1px solid #b5b5b5;
+        }
+
+        .ogcd-trigger {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            border: 1px dashed #ccc;
+        }
+
+        .trigger-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .dropdown-menu-wide {
+            min-width: 250px;
+        }
+
+        .dropdown-search-sticky {
+            position: sticky;
+            top: -8px;
+            z-index: 10;
+            backdrop-filter: blur(2px);
+        }
+
+        .rotation-container {
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+<body class="content p-3" x-data="rotation_builder">
+<div class="block box">
+    <h2 class="h2">Rotation Builder</h2>
+</div>
+<div class="block">
+    <div class="field">
+        <label class="label">Select Job</label>
+        <div class="control">
+            <div class="select">
+                <select x-model="job" @change="resetRotation()">
+                    <option value="" disabled>Select a Job</option>
+                    <template x-for="(data, key) in db.jobs" :key="key">
+                        <option :value="key" x-text="data.name + ` (${key})`"></option>
+                    </template>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+<template x-if="job">
+    <div class="block">
+        <!-- Snippet Manager -->
+        <div class="block box">
+            <h4 class="title is-5">Saved Snippets</h4>
+            <p class="subtitle is-7 mb-3 mt-1">
+                Build a sequence, name it, and save it to reuse later.<br>
+                You can also select parts of a rotation with <code>ctrl+click</code> or <code>shift+click.</code>.<br>
+                If parts of the rotation are selected, only the selected one will be saved.
+            </p>
+            <div class="field has-addons">
+                <div class="control is-expanded">
+                    <input
+                        class="input"
+                        type="text"
+                        placeholder="Pattern Name (e.g. Opener, Burst)"
+                        x-model="snippetName"
+                        @keyup.enter="saveSnippet()"
+                    >
+                </div>
+                <div class="control">
+                    <button
+                        class="button is-primary"
+                        @click="saveSnippet()"
+                        :disabled="!snippetName || rotation.length === 0"
+                    >Save</button>
+                </div>
+            </div>
+            <div class="tags are-medium mt-2">
+                <template x-for="(snip, idx) in getJobSnippets()" :key="idx">
+                    <div class="tags has-addons m-1">
+                        <a
+                            class="tag is-link"
+                            x-text="snip.name"
+                            @click="loadSnippet(snip)"
+                            title="Click to append to end of rotation"
+                        ></a>
+                        <a class="tag is-delete" @click="deleteSnippet(snip)"></a>
+                    </div>
+                </template>
+                <span x-show="getJobSnippets().length === 0" class="is-size-7 has-text-grey">
+                    No saved patterns for this job.
+                </span>
+            </div>
+            <hr>
+            <div class="is-flex">
+                <div class="m-1">
+                    <div class="field has-addons">
+                        <div class="control">
+                            <a class="button is-static">Start Time</a>
+                        </div>
+                        <div class="control">
+                            <input class="input" type="number" x-model="startTime">
+                        </div>
+                    </div>
+                </div>
+                <div class="m-1">
+                    <div class="field has-addons">
+                        <div class="control">
+                            <a class="button is-static">GCD</a>
+                        </div>
+                        <div class="control">
+                            <input class="input" type="number" x-model="gcd">
+                        </div>
+                    </div>
+                </div>
+                <div class="m-1">
+                    <button class="button is-danger" @click="resetRotation()">Clear</button>
+                </div>
+                <div class="ml-auto is-flex is-align-items-center">
+                    <button class="button is-primary mr-2" @click="$refs.importInput.click()">Import</button>
+                    <input
+                        type="file"
+                        accept=".csv"
+                        style="display: none"
+                        @change="importRotation($event)"
+                        x-ref="importInput"
+                    >
+                    <button class="button is-primary" @click="exportRotation()">Export</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Rotation Container -->
+        <div class="is-flex is-flex-direction-column is-align-items-center rotation-container box">
+            <template x-for="(step, index) in rotation" :key="index">
+                <!-- Rotation Step -->
+                <div
+                    class="is-flex is-align-items-center py-2 px-3 rotation-step position-relative"
+                    draggable="true"
+                    @dragstart="onDragStart(index)"
+                    @dragend="onDragEnd()"
+                    @dragover.prevent="onDragOver(index)"
+                    @drop="performDrop(index)"
+                    @click.exact="toggleSelection(index)"
+                    @click.shift="selectRange(index)"
+                    @click.ctrl="toggleSingleSelection(index)"
+                    :class="{
+                         'is-dragging': draggingIndex === index,
+                         'is-drag-over': dragOverIndex === index,
+                         'is-selected': selectedIndices.has(index),
+                    }"
+                >
+                    <span class="time-display" x-text="calculateTime(index)"></span>
+
+                    <button
+                        class="delete is-small has-background-danger step-delete-btn"
+                        @click="removeGcd(index)"
+                    ></button>
+
+                    <!-- GCD Slot -->
+                    <div
+                        class="dropdown"
+                        x-data="{ open: false, search: '' }"
+                        x-init="selectorInit()"
+                        :class="{'is-active': open}"
+                        @click.outside="open = false"
+                    >
+                        <div class="dropdown-trigger">
+                            <div
+                                class="is-clickable is-flex is-align-items-center is-justify-content-center gcd-trigger"
+                                @click="open = !open; search = ''"
+                                @contextmenu.prevent="step.skill = ''"
+                                title="Select GCD (Right-click to clear)"
+                            >
+                                <img
+                                    :src="getSkillIcon(step.skill)"
+                                    x-show="hasSkill(step.skill)"
+                                    class="trigger-img"
+                                >
+                                <span x-show="!hasSkill(step.skill)" class="is-size-7"> + </span>
+                            </div>
+                        </div>
+                        <template x-if="open">
+                            <div class="dropdown-menu dropdown-menu-wide is-overlay" role="menu">
+                                <div class="dropdown-content">
+                                    <div class="p-2 dropdown-search-sticky">
+                                        <input
+                                            type="text"
+                                            class="input is-small"
+                                            placeholder="Search skill..."
+                                            x-model="search"
+                                            x-ref="searchInput"
+                                        >
+                                    </div>
+                                    <template x-for="skill in filterSkills('gcd', search, index)" :key="skill.id">
+                                        <a
+                                            href="#"
+                                            class="dropdown-item is-flex is-align-items-center"
+                                            @click.prevent="step.skill = skill.id; open = false"
+                                            :class="{
+                                                'is-active': step.skill == skill.id,
+                                                'combo-action': isComboAction(index, skill.id),
+                                            }"
+                                        >
+                                            <img :src="skill.icon" class="skill-icon">
+                                            <span x-text="skill.name"></span>
+                                        </a>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <span class="is-size-7">➜</span>
+
+                    <template x-for="slot in [step.ogcd1, step.ogcd2]">
+                        <div
+                            class="dropdown"
+                            x-data="{ open: false, search: '' }"
+                            x-init="selectorInit()"
+                            :class="{ 'is-active': open }"
+                            @click.outside="open = false"
+                        >
+                            <div class="dropdown-trigger">
+                                <div
+                                    class="is-clickable  is-flex is-align-items-center is-justify-content-center ogcd-trigger"
+                                    @click="open = !open; search = ''"
+                                    @contextmenu.prevent="slot = ''"
+                                    title="Select ability (Right-click to clear)"
+                                >
+                                    <img :src="getSkillIcon(slot)" x-show="hasSkill(slot)" class="trigger-img">
+                                    <span x-show="!hasSkill(slot)" class="is-size-7">+</span>
+                                </div>
+                            </div>
+                            <template x-if="open">
+                                <div class="dropdown-menu dropdown-menu-wide" role="menu">
+                                    <div class="dropdown-content">
+                                        <div class="p-2 dropdown-search-sticky">
+                                            <input
+                                                type="text"
+                                                class="input is-small"
+                                                placeholder="Search skill..."
+                                                x-model="search"
+                                                x-ref="searchInput"
+                                            >
+                                        </div>
+                                        <template x-for="skill in filterSkills('ogcd', search, index)" :key="skill.id">
+                                            <a
+                                                href="#" class="dropdown-item is-flex is-align-items-center"
+                                                @click.prevent="slot = skill.id; open = false"
+                                                :class="{ 'is-active': slot == skill.id }"
+                                            >
+                                                <img :src="skill.icon" class="skill-icon">
+                                                <span x-text="skill.name"></span>
+                                            </a>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <button
+                        class="delete is-small has-background-primary step-add-between-btn"
+                        @click="addGcd(index)"
+                    ></button>
+                </div>
+            </template>
+            <button class="button is-primary is-rounded mt-2" @click="addGcd()"> + </button>
+        </div>
+    </div>
+</template>
+<script type="application/javascript">
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('rotation_builder', () => ({
+            db: {},
+            job: '',
+            rotation: [],
+            savedSnippets: [],
+            snippetName: '',
+            draggingIndex: null,
+            dragOverIndex: null,
+            selectedIndices: new Set(),
+            isMultiSelectMode: false,
+            startTime: 0,
+            gcd: 2.5,
+
+            async init() {
+                var response = await fetch('https://raw.githubusercontent.com/virgilLacondemine/virgilLacondemine.github.io/refs/heads/main/xiv_tools/db.json');
+                this.db = await response.json();
+
+                // Load snippets from localStorage
+                const storedSnippets = localStorage.getItem('savedSnippets');
+                this.savedSnippets = storedSnippets ? JSON.parse(storedSnippets) : [];
+
+                // Persist savedSnippets to localStorage
+                this.$watch('savedSnippets', (value) => {
+                    localStorage.setItem('savedSnippets', JSON.stringify(value));
+                });
+            },
+
+            resetRotation() {
+                this.rotation = [];
+                this.selectedIndices.clear();
+            },
+
+            addGcd(index = null) {
+                var step = {
+                    skill: '',
+                    ogcd1: '',
+                    ogcd2: '',
+                };
+
+                if (index != null) {
+                    this.rotation.splice(index + 1, 0, step);
+                    return;
+                }
+
+                const currentIndex = this.rotation.length;
+                if (currentIndex <= 0) {
+                    this.addStep(step);
+                    return;
+                }
+
+                var prevSkill = this.getSkill(this.rotation[currentIndex - 1].skill);
+                if (!prevSkill) {
+                    this.addStep(step);
+                    return;
+                }
+
+                var skills = this.getAvailableSkills('gcd');
+                var comboSkill = skills.find((skill) => skill.combo?.id === prevSkill?.id);
+
+                if (comboSkill) {
+                    step.skill = comboSkill.id;
+                }
+
+                this.addStep(step);
+            },
+
+            addStep(step) {
+                this.rotation.push(step);
+                this.scrollRotationToBottom();
+            },
+
+            scrollRotationToBottom() {
+                this.$nextTick(() => {
+                    let rotationContainer = document.querySelector('.rotation-container');
+                    rotationContainer.scrollTop = rotationContainer.scrollHeight;
+                });
+            },
+
+            removeGcd(index) {
+                if (this.selectedIndices.size > 0) {
+                    const toRemove = Array.from(this.selectedIndices).sort((a, b) => b - a);
+                    toRemove.forEach(idx => this.rotation.splice(idx, 1));
+                    this.selectedIndices.clear();
+                } else {
+                    this.rotation.splice(index, 1);
+                }
+            },
+
+            saveSnippet() {
+                if (!this.snippetName || this.rotation.length === 0) {
+                    return
+                }
+
+                let sequence;
+                if (this.selectedIndices.size > 0) {
+                    sequence = Array.from(this.selectedIndices)
+                        .sort((a, b) => a - b)
+                        .map(idx => this.rotation[idx]);
+                } else {
+                    sequence = this.rotation;
+                }
+
+                // Deep copy to avoid reference issues
+                sequence = JSON.parse(JSON.stringify(sequence));
+
+                this.savedSnippets.push({
+                    id: Date.now(),
+                    job: this.job,
+                    name: this.snippetName,
+                    data: sequence
+                });
+
+                this.snippetName = '';
+                this.selectedIndices.clear();
+            },
+
+            getJobSnippets() {
+                return this.savedSnippets.filter(s => s.job === this.job);
+            },
+
+            loadSnippet(snippet) {
+                // Deep copy the snippet data before adding
+                const sequence = JSON.parse(JSON.stringify(snippet.data));
+                this.rotation.push(...sequence);
+                this.scrollRotationToBottom();
+            },
+
+            deleteSnippet(snippet) {
+                this.savedSnippets = this.savedSnippets.filter(s => s.id !== snippet.id);
+            },
+
+            onDragStart(index) {
+                this.draggingIndex = index;
+            },
+
+            onDragEnd() {
+                this.draggingIndex = null;
+                this.dragOverIndex = null;
+            },
+
+            onDragOver(index) {
+                if (this.draggingIndex !== null && this.draggingIndex !== index) {
+                    this.dragOverIndex = index;
+                }
+            },
+
+            performDrop(targetIndex) {
+                if (this.draggingIndex === null || this.draggingIndex === targetIndex) {
+                    return;
+                }
+
+                const selected = Array.from(this.selectedIndices).sort((a, b) => a - b);
+                if (selected.length > 0) {
+                    const items = selected.map(idx => this.rotation[idx]);
+                    selected.reverse().forEach(idx => this.rotation.splice(idx, 1));
+                    this.rotation.splice(targetIndex, 0, ...items);
+                } else {
+                    const item = this.rotation.splice(this.draggingIndex, 1)[0];
+                    this.rotation.splice(targetIndex, 0, item);
+                }
+
+                this.selectedIndices.clear();
+                this.draggingIndex = null;
+                this.dragOverIndex = null;
+            },
+
+            getSkill(id) {
+                if (!id || !this.job || !this.db.skills || !this.db.skills[this.job]) {
+                    return null;
+                }
+
+                return this.db.skills[this.job].find(s => s.id == id);
+            },
+
+            getSkillIcon(id) {
+                const skill = this.getSkill(id);
+                return skill ? skill.icon : '';
+            },
+
+            hasSkill(id) {
+                return !!this.getSkill(id);
+            },
+
+            toggleSelection(index) {
+                this.selectedIndices.clear();
+                this.selectedIndices.add(index);
+            },
+
+            toggleSingleSelection(index) {
+                if (this.selectedIndices.has(index)) {
+                    this.selectedIndices.delete(index);
+                } else {
+                    this.selectedIndices.add(index);
+                }
+            },
+
+            selectRange(index) {
+                if (this.selectedIndices.size === 0) {
+                    this.selectedIndices.add(index);
+                    return;
+                }
+
+                const min = Math.min(...this.selectedIndices);
+                const max = Math.max(...this.selectedIndices);
+
+                if (index < min) {
+                    for (let i = index; i <= max; i++) {
+                        this.selectedIndices.add(i);
+                    }
+                } else if (index > max) {
+                    for (let i = min; i <= index; i++) {
+                        this.selectedIndices.add(i);
+                    }
+                }
+            },
+
+            filterSkills(type, search, index) {
+                let skills = this.getAvailableSkills(type);
+
+                if (search) {
+                    const lowerSearch = search.toLowerCase();
+                    skills = skills.filter(s => s.name.toLowerCase().includes(lowerSearch));
+                }
+
+                if (index === 0 || index > this.rotation.length) {
+                    return skills;
+                }
+
+                // sort skills to put combo action on top of the skill list
+                skills.sort((a, b) => this.isComboAction(index, b.id) - (this.isComboAction(index, a.id)));
+
+                return skills;
+            },
+
+            getAvailableSkills(type) {
+                var types = {
+                    gcd: ['weaponskill', 'spell'],
+                    ogcd: ['ability'],
+                };
+
+                return this.db.skills[this.job].filter(skill => types[type].includes(skill.type.toLowerCase()));
+            },
+
+            calculateTime(index) {
+                if (index > this.rotation.length) return 0;
+
+                let time = Number.parseFloat(this.startTime);
+                time += this.gcd * index;
+
+                return time.toFixed(1)+'s';
+            },
+
+            isComboAction(index, skillId) {
+                if (index === 0 || index > this.rotation.length) return false;
+
+                const skill = this.getSkill(skillId);
+                if (!skill) return false;
+
+                const prevSkill = this.getSkill(this.rotation[index - 1].skill);
+                if (!prevSkill) return false;
+
+                const hasCombo = skill.combo !== null && skill.combo?.id !== 0;
+                const isComboOfPrevious = skill.combo?.id === prevSkill.id;
+
+                return hasCombo && isComboOfPrevious;
+            },
+
+            selectorInit() {
+                this.$watch('open', value => {
+                    if (value) {
+                        this.$nextTick(() => this.$refs.searchInput.focus())
+                    }
+                });
+            },
+
+            importRotation(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                if (!this.job) {
+                    alert('Please select a job before importing.');
+                    event.target.value = '';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    this.processCsvImport(text);
+                    event.target.value = '';
+                };
+                reader.readAsText(file);
+            },
+
+            processCsvImport(csvText) {
+                const lines = csvText.split('\n');
+                const jobSkills = this.db.skills[this.job];
+                if (!jobSkills) return;
+
+                let newRotation = [];
+                let currentStep = null;
+
+
+                let startIndex = 0;
+                if (lines[0] && lines[0].toLowerCase().includes('skill_name')) {
+                    startIndex = 1;
+                }
+
+                for (let i = startIndex; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+
+                    const columns = line.split(',');
+                    if (columns.length < 2) continue;
+
+                    const skillName = columns[1].trim();
+                    const skill = jobSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
+                    if (!skill) continue;
+
+                    const type = skill.type.toLowerCase();
+                    const isGcd = type === 'weaponskill' || type === 'spell';
+
+                    if (isGcd) {
+                        if (currentStep) {
+                            newRotation.push(currentStep);
+                        }
+
+                        currentStep = {
+                            skill: skill.id,
+                            ogcd1: '',
+                            ogcd2: ''
+                        };
+                    } else {
+                        if (!currentStep) {
+                            currentStep = {
+                                skill: '',
+                                ogcd1: '',
+                                ogcd2: ''
+                            };
+                        }
+
+                        if (!currentStep.ogcd1) {
+                            currentStep.ogcd1 = skill.id;
+                        } else if (!currentStep.ogcd2) {
+                            currentStep.ogcd2 = skill.id;
+                        }
+                    }
+                }
+
+                if (currentStep) {
+                    newRotation.push(currentStep);
+                }
+
+                if (newRotation.length > 0) {
+                    this.rotation.push(...newRotation);
+                    this.scrollRotationToBottom();
+                } else {
+                    alert('Something went wrong when importing rotation.');
+                }
+            },
+
+            exportRotation() {
+                const rows = [];
+                const header = ['Time','skill_name','job_class','skill_conditional'];
+
+                for (let i = 0; i < this.rotation.length; i++) {
+
+                    const step = this.rotation[i];
+                    const time = Number.parseFloat(this.startTime) + (this.gcd * i);
+
+                    if (step.skill) {
+                        let skill = this.getSkill(step.skill);
+                        rows.push([time.toFixed(1), skill?.name, '', '']);
+                    }
+
+                    if (step.ogcd1) {
+                        let skill = this.getSkill(step.ogcd1);
+                        let skillTime = time + (this.gcd / 3);
+                        rows.push([skillTime.toFixed(1), skill?.name, '', '']);
+                    }
+
+                    if (step.ogcd2) {
+                        let skill = this.getSkill(step.ogcd2);
+                        let skillTime = time + ((this.gcd * 2) / 3);
+                        rows.push([skillTime.toFixed(1), skill?.name, '', '']);
+                    }
+                }
+            
+                var csv = header.join(',') + '\n';rows.join('\n');
+                rows.forEach(row => csv += row.join(',') + '\n');
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.setAttribute('href', url);
+                a.setAttribute('download', `rotation_${this.job.toLowerCase()}_${Date.now()}.csv`);
+                a.click();
+
+                a.remove();
+            },
+        }));
+    });
+</script>
+</body>
+</html>
